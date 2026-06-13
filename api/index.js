@@ -110,8 +110,8 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     try {
         let fileBuffer;
         if (inputType === "url") {
-            // Buffer extraction expanded timeout to 45s for external media processing
-            const downloadRes = await axios.get(base64OrBufferOrUrl, { responseType: 'arraybuffer', timeout: 45000 });
+            // Buffer download timeout extended to 1.5 minutes (90000ms) to sync heavy inner endpoints
+            const downloadRes = await axios.get(base64OrBufferOrUrl, { responseType: 'arraybuffer', timeout: 90000 });
             fileBuffer = Buffer.from(downloadRes.data);
         } else if (inputType === "base64") {
             fileBuffer = Buffer.from(base64OrBufferOrUrl, 'base64');
@@ -125,7 +125,7 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
 
         const response = await axios.post("https://tmpfiles.org/api/v1/upload", form, {
             headers: form.getHeaders(),
-            timeout: 45000 // Tmpfiles proxy pipeline upload safe buffer limits
+            timeout: 90000 // Tmpfiles processing sync timeout set to 1m 30s
         });
 
         if (response.data && response.data.status === "success") {
@@ -238,7 +238,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "WormGPT Enterprise", response.data.reply || response.data.response);
             }
 
-            // --- VIDEO GENERATION MODELS (Timeout set to 3 Minutes / 180000ms) ---
+            // --- VIDEO GENERATION MODELS (Timeout set to 3 Minutes) ---
             case "sora-video-six":
             case "text-to-video-six": {
                 const response = await axios.get(`https://texttovideo-six.vercel.app/generate?prompt=${encodeURIComponent(prompt)}`, { timeout: 180000 });
@@ -252,7 +252,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "Sora2 AI Video Engine", response.data.UrlVideo);
             }
 
-            // --- IMAGE GENERATION MODELS (Timeout set to 45 Seconds / 45000ms) ---
+            // --- IMAGE GENERATION MODELS (Timeout Extended to 1 Minute 30 Seconds / 90000ms) ---
             case "veo-image": {
                 const pageData = await axios.get("https://veoaifree.com/veo-video-generator/", { timeout: 25000 });
                 let nonce = null;
@@ -269,7 +269,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 payload.append("actionType", "whisk_final_image");
                 payload.append("model", "veo");
 
-                const imgResponse = await axios.post("https://veoaifree.com/wp-admin/admin-ajax.php", payload, { timeout: 45000 });
+                const imgResponse = await axios.post("https://veoaifree.com/wp-admin/admin-ajax.php", payload, { timeout: 90000 });
                 let base64Uri = imgResponse.data.data?.data_uri || imgResponse.data.data_uri || "";
                 if (base64Uri.includes("base64,")) base64Uri = base64Uri.split("base64,")[1];
 
@@ -278,25 +278,25 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             }
 
             case "dalle": {
-                const response = await axios.post("https://yabes-api.pages.dev/api/ai/image/dalle", { prompt: prompt }, { timeout: 45000 });
+                const response = await axios.post("https://yabes-api.pages.dev/api/ai/image/dalle", { prompt: prompt }, { timeout: 90000 });
                 return sendStandardizedResponse(res, "Dall-E AI Node", response.data.output);
             }
 
             case "nanobanana-pro":
             case "nanobanana": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-nanobanana-pro?text=${encodeURIComponent(prompt)}`, { timeout: 45000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-nanobanana-pro?text=${encodeURIComponent(prompt)}`, { timeout: 90000 });
                 return sendStandardizedResponse(res, "KILWA Nanobanana Pro", response.data.image_url);
             }
 
             case "gpt-image-2":
             case "gpt-image": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-gpt-img?text=${encodeURIComponent(prompt)}`, { timeout: 45000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-gpt-img?text=${encodeURIComponent(prompt)}`, { timeout: 90000 });
                 return sendStandardizedResponse(res, "GPT Image 2 Node System", response.data.image_url);
             }
 
             case "nanobanana-2":
             case "nano-banana2": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-img?text=${encodeURIComponent(prompt)}`, { timeout: 45000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-img?text=${encodeURIComponent(prompt)}`, { timeout: 90000 });
                 return sendStandardizedResponse(res, "Nano Banana Engine Gen 2", response.data.image_url);
             }
 
@@ -316,14 +316,14 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 let styleSlug = modelKey.replace("flip-", "");
                 if (styleSlug === "flip-gen") styleSlug = fallbackStyle;
                 
-                const response = await axios.get(`https://flip-gen.vercel.app/ai/image/${styleSlug}?prompt=${encodeURIComponent(prompt)}`, { timeout: 45000 });
+                const response = await axios.get(`https://flip-gen.vercel.app/ai/image/${styleSlug}?prompt=${encodeURIComponent(prompt)}`, { timeout: 90000 });
                 return sendStandardizedResponse(res, `Flip-Gen Style: [${styleSlug}]`, response.data.image_url);
             }
 
             case "flux-cyberpunk": {
                 const response = await axios.post("https://image.itz-ashlynn.workers.dev/generate", {
                     prompt: prompt, version: "flux", style: "futuristic_retro_cyberpunk"
-                }, { responseType: 'arraybuffer', timeout: 45000 });
+                }, { responseType: 'arraybuffer', timeout: 90000 });
                 const secureLink = await uploadToTmpStorage(response.data, "buffer");
                 return sendStandardizedResponse(res, "Flux Cyberpunk Neural Engine", secureLink);
             }
@@ -331,7 +331,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             case "sdxl-watercolor": {
                 const response = await axios.post("https://image.itz-ashlynn.workers.dev/generate", {
                     prompt: prompt, version: "sdxl", style: "watercolor"
-                }, { responseType: 'arraybuffer', timeout: 45000 });
+                }, { responseType: 'arraybuffer', timeout: 90000 });
                 const secureLink = await uploadToTmpStorage(response.data, "buffer");
                 return sendStandardizedResponse(res, "SDXL High Fidelity Watercolor Studio", secureLink);
             }
@@ -342,7 +342,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                     const mappedStyleKey = MODELS_REGISTRY[modelKey].style_key;
                     const response = await axios.post("https://image.itz-ashlynn.workers.dev/generate", {
                         prompt: prompt, version: "sdxl", style: mappedStyleKey
-                    }, { responseType: 'arraybuffer', timeout: 45000 });
+                    }, { responseType: 'arraybuffer', timeout: 90000 });
                     const secureLink = await uploadToTmpStorage(response.data, "buffer");
                     return sendStandardizedResponse(res, `SDXL [Style Preset: ${mappedStyleKey}]`, secureLink);
                 }
