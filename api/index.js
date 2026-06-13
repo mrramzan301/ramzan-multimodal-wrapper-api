@@ -62,7 +62,7 @@ const MODELS_REGISTRY = {
     "flip-vintage": { type: "image", description: "Flip-Gen: Classic 1970s film grain vintage look" },
     "flip-steampunk": { type: "image", description: "Flip-Gen: Victorian steam engine copper industrial aesthetic" },
     
-    // Additional 31 Styles from point 17 mapped as direct accessible sub-models
+    // Additional 31 Styles mapped as direct accessible sub-models
     "style-adorable-kawaii": { type: "image", style_key: "adorable_kawaii", description: "Chibi kawaii clean vector profile artwork" },
     "style-pointillism": { type: "image", style_key: "pointillism", description: "Pointillism dots cluster art structure" },
     "style-psychedelic": { type: "image", style_key: "psychedelic", description: "Trippy vibrant high contrast colorful wave visual" },
@@ -110,7 +110,8 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     try {
         let fileBuffer;
         if (inputType === "url") {
-            const downloadRes = await axios.get(base64OrBufferOrUrl, { responseType: 'arraybuffer', timeout: 25000 });
+            // Buffer extraction expanded timeout to 45s for external media processing
+            const downloadRes = await axios.get(base64OrBufferOrUrl, { responseType: 'arraybuffer', timeout: 45000 });
             fileBuffer = Buffer.from(downloadRes.data);
         } else if (inputType === "base64") {
             fileBuffer = Buffer.from(base64OrBufferOrUrl, 'base64');
@@ -124,7 +125,7 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
 
         const response = await axios.post("https://tmpfiles.org/api/v1/upload", form, {
             headers: form.getHeaders(),
-            timeout: 35000
+            timeout: 45000 // Tmpfiles proxy pipeline upload safe buffer limits
         });
 
         if (response.data && response.data.status === "success") {
@@ -133,10 +134,10 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     } catch (e) {
         console.error("⚠️ Tmpfiles cloud link processing system error:", e.message);
     }
-    return base64OrBufferOrUrl; // Fallback to raw path if storage endpoint drops down
+    return base64OrBufferOrUrl;
 }
 
-// Automated Filter Layer: Catches any raw HTTP string, downloads and secures it
+// Automated Filter Layer: Catches raw HTTP, converts it safely using centralized pipeline
 async function sendStandardizedResponse(res, modelName, rawResult) {
     let finalizedResult = rawResult;
     if (typeof rawResult === 'string' && rawResult.startsWith('http://')) {
@@ -177,85 +178,83 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     const modelKey = chosenModel.toLowerCase();
 
     try {
-        // --- ROUTING HANDLERS ACCORDING TO YOUR 17 POINTS ---
         switch (modelKey) {
             
-            // 1. Gemini 2.5 Flash via Kilwa
+            // --- CHAT MODELS HANDLERS ---
             case "gemini-2.5-flash":
             case "gemini-flash": {
                 const strictPrompt = `[System Instruction: You are Gemini 2.5 Flash model built by Google. Keep identity safe.] Question: ${prompt}`;
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chat?text=${encodeURIComponent(strictPrompt)}`, { timeout: 15000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chat?text=${encodeURIComponent(strictPrompt)}`, { timeout: 25000 });
                 return sendStandardizedResponse(res, "Gemini 2.5 Flash", response.data.reply || response.data.response);
             }
 
-            // 2. Gemini 3 Flash via Primezone Vercel
             case "gemini-3-flash":
             case "gemini-prime": {
-                const response = await axios.get(`https://gemini-primezone.vercel.app/?q=${encodeURIComponent(prompt)}`, { timeout: 15000 });
+                const response = await axios.get(`https://gemini-primezone.vercel.app/?q=${encodeURIComponent(prompt)}`, { timeout: 25000 });
                 return sendStandardizedResponse(res, "Gemini 3 Flash", response.data.response);
             }
 
-            // 3. GPT-5 Nano via Kilwa
             case "gpt-5-nano": {
                 const strictPrompt = `[System Instruction: You are GPT-5 Nano built by OpenAI.] Question: ${prompt}`;
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chatgpt?text=${encodeURIComponent(strictPrompt)}`, { timeout: 15000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chatgpt?text=${encodeURIComponent(strictPrompt)}`, { timeout: 25000 });
                 return sendStandardizedResponse(res, "GPT-5 Nano", response.data.reply);
             }
 
-            // 4. DeepSeek via Kilwa
             case "deepseek": {
                 const strictPrompt = `[System Instruction: You are DeepSeek AI built by DeepSeek corporation.] Question: ${prompt}`;
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-deepseek?uid=12345&text=${encodeURIComponent(strictPrompt)}`, { timeout: 15000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-deepseek?uid=12345&text=${encodeURIComponent(strictPrompt)}`, { timeout: 25000 });
                 return sendStandardizedResponse(res, "DeepSeek", response.data.reply);
             }
 
-            // 5. Claude Opus 4.7 via Klyphic
             case "claude-opus-4.7":
             case "claude-opus": {
-                const response = await axios.get(`https://klyphic.onrender.com/chat?token=033b3b43aa3d4c93bb0952161c0df3a7&q=${encodeURIComponent(prompt)}&model=claude-opus-4.7`, { timeout: 15000 });
+                const response = await axios.get(`https://klyphic.onrender.com/chat?token=033b3b43aa3d4c93bb0952161c0df3a7&q=${encodeURIComponent(prompt)}&model=claude-opus-4.7`, { timeout: 30000 });
                 return sendStandardizedResponse(res, "Claude Opus 4.7", response.data.response);
             }
 
-            // 6. Llama3.2 Local Node 
             case "llama3.2": {
                 const response = await axios.post("http://108.181.196.208:11434/api/chat", {
                     model: "llama3.2:latest", messages: [{ role: "user", content: prompt }], stream: false
-                }, { timeout: 20000 });
+                }, { timeout: 30000 });
                 return sendStandardizedResponse(res, "Llama 3.2 Latest", response.data.message.content);
             }
 
-            // 7. Llava Vision Local Node
             case "llava": {
                 const response = await axios.post("http://108.181.196.208:11434/api/chat", {
                     model: "llava:latest", messages: [{ role: "user", content: prompt }], stream: false
-                }, { timeout: 25000 });
+                }, { timeout: 35000 });
                 return sendStandardizedResponse(res, "Llava Vision AI", response.data.message.content);
             }
 
-            // 8. SmolLM2 Node
             case "smollm2": {
                 const response = await axios.post("http://108.181.196.208:11434/api/chat", {
                     model: "smollm2:135m", messages: [{ role: "user", content: prompt }], stream: false
-                }, { timeout: 15000 });
+                }, { timeout: 25000 });
                 return sendStandardizedResponse(res, "SmolLM2 135m", response.data.message.content);
             }
 
-            // WormGPT Node from point 17 section
             case "wormgpt": {
-                const response = await axios.get(`https://wormgpt.freeapihub.workers.dev/chat?q=${encodeURIComponent(prompt)}`, { timeout: 15000 });
+                const response = await axios.get(`https://wormgpt.freeapihub.workers.dev/chat?q=${encodeURIComponent(prompt)}`, { timeout: 25000 });
                 return sendStandardizedResponse(res, "WormGPT Enterprise", response.data.reply || response.data.response);
             }
 
-            // 9. Text to Video Six
+            // --- VIDEO GENERATION MODELS (Timeout set to 3 Minutes / 180000ms) ---
             case "sora-video-six":
             case "text-to-video-six": {
-                const response = await axios.get(`https://texttovideo-six.vercel.app/generate?prompt=${encodeURIComponent(prompt)}`, { timeout: 45000 });
+                const response = await axios.get(`https://texttovideo-six.vercel.app/generate?prompt=${encodeURIComponent(prompt)}`, { timeout: 180000 });
                 return sendStandardizedResponse(res, "Sora Vercel Multi-node Six", response.data.url);
             }
 
-            // 10. Veo Image Dynamic Generation system with automatic Nonce parsing logic
+            case "sora2-video": {
+                const response = await axios.post("https://zecora0.serv00.net/ai/Sora2_s4.php", {
+                    prompt: prompt, aspect: "16:9"
+                }, { headers: { "Content-Type": "application/json" }, timeout: 180000 });
+                return sendStandardizedResponse(res, "Sora2 AI Video Engine", response.data.UrlVideo);
+            }
+
+            // --- IMAGE GENERATION MODELS (Timeout set to 45 Seconds / 45000ms) ---
             case "veo-image": {
-                const pageData = await axios.get("https://veoaifree.com/veo-video-generator/", { timeout: 15000 });
+                const pageData = await axios.get("https://veoaifree.com/veo-video-generator/", { timeout: 25000 });
                 let nonce = null;
                 const match = pageData.data.match(/"nonce"\s*:\s*"([a-zA-Z0-9]+)"/);
                 if (match) nonce = match[1];
@@ -270,7 +269,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 payload.append("actionType", "whisk_final_image");
                 payload.append("model", "veo");
 
-                const imgResponse = await axios.post("https://veoaifree.com/wp-admin/admin-ajax.php", payload, { timeout: 35000 });
+                const imgResponse = await axios.post("https://veoaifree.com/wp-admin/admin-ajax.php", payload, { timeout: 45000 });
                 let base64Uri = imgResponse.data.data?.data_uri || imgResponse.data.data_uri || "";
                 if (base64Uri.includes("base64,")) base64Uri = base64Uri.split("base64,")[1];
 
@@ -278,42 +277,29 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "Veo Image Generator Engine", secureLink);
             }
 
-            // 11. Sora2 AI Video Generator Node via serv00 
-            case "sora2-video": {
-                const response = await axios.post("https://zecora0.serv00.net/ai/Sora2_s4.php", {
-                    prompt: prompt, aspect: "16:9"
-                }, { headers: { "Content-Type": "application/json" }, timeout: 45000 });
-                return sendStandardizedResponse(res, "Sora2 AI Video Engine", response.data.UrlVideo);
-            }
-
-            // 12. Yabes Dall-E Generation Node
             case "dalle": {
-                const response = await axios.post("https://yabes-api.pages.dev/api/ai/image/dalle", { prompt: prompt }, { timeout: 30000 });
+                const response = await axios.post("https://yabes-api.pages.dev/api/ai/image/dalle", { prompt: prompt }, { timeout: 45000 });
                 return sendStandardizedResponse(res, "Dall-E AI Node", response.data.output);
             }
 
-            // 13. Kilwa Nanobanana Pro Node
             case "nanobanana-pro":
             case "nanobanana": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-nanobanana-pro?text=${encodeURIComponent(prompt)}`, { timeout: 20000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-nanobanana-pro?text=${encodeURIComponent(prompt)}`, { timeout: 45000 });
                 return sendStandardizedResponse(res, "KILWA Nanobanana Pro", response.data.image_url);
             }
 
-            // 14. Kilwa GPT Image 2 Node System
             case "gpt-image-2":
             case "gpt-image": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-gpt-img?text=${encodeURIComponent(prompt)}`, { timeout: 20000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-gpt-img?text=${encodeURIComponent(prompt)}`, { timeout: 45000 });
                 return sendStandardizedResponse(res, "GPT Image 2 Node System", response.data.image_url);
             }
 
-            // 15. Kilwa Nano Banana Gen 2 alternate route path
             case "nanobanana-2":
             case "nano-banana2": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-img?text=${encodeURIComponent(prompt)}`, { timeout: 20000 });
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-img?text=${encodeURIComponent(prompt)}`, { timeout: 45000 });
                 return sendStandardizedResponse(res, "Nano Banana Engine Gen 2", response.data.image_url);
             }
 
-            // 16. Base Flip-Gen Routing Style logic block mapping
             case "flip-gen":
             case "flip-realistic":
             case "flip-anime":
@@ -328,17 +314,16 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             case "flip-vintage":
             case "flip-steampunk": {
                 let styleSlug = modelKey.replace("flip-", "");
-                if (styleSlug === "flip-gen") styleSlug = fallbackStyle; // fallback to user query variable style
+                if (styleSlug === "flip-gen") styleSlug = fallbackStyle;
                 
-                const response = await axios.get(`https://flip-gen.vercel.app/ai/image/${styleSlug}?prompt=${encodeURIComponent(prompt)}`, { timeout: 25000 });
+                const response = await axios.get(`https://flip-gen.vercel.app/ai/image/${styleSlug}?prompt=${encodeURIComponent(prompt)}`, { timeout: 45000 });
                 return sendStandardizedResponse(res, `Flip-Gen Style: [${styleSlug}]`, response.data.image_url);
             }
 
-            // 17. Dedicated Ashlynn Workers Custom Binary Arrays & Sub styles mapping
             case "flux-cyberpunk": {
                 const response = await axios.post("https://image.itz-ashlynn.workers.dev/generate", {
                     prompt: prompt, version: "flux", style: "futuristic_retro_cyberpunk"
-                }, { responseType: 'arraybuffer', timeout: 35000 });
+                }, { responseType: 'arraybuffer', timeout: 45000 });
                 const secureLink = await uploadToTmpStorage(response.data, "buffer");
                 return sendStandardizedResponse(res, "Flux Cyberpunk Neural Engine", secureLink);
             }
@@ -346,19 +331,18 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             case "sdxl-watercolor": {
                 const response = await axios.post("https://image.itz-ashlynn.workers.dev/generate", {
                     prompt: prompt, version: "sdxl", style: "watercolor"
-                }, { responseType: 'arraybuffer', timeout: 35000 });
+                }, { responseType: 'arraybuffer', timeout: 45000 });
                 const secureLink = await uploadToTmpStorage(response.data, "buffer");
                 return sendStandardizedResponse(res, "SDXL High Fidelity Watercolor Studio", secureLink);
             }
 
-            // Fallback for custom style tokens dynamic registration inject from point 17 array list
+            // Fallback for custom dynamic style presets (SDXL Backend Nodes)
             default: {
                 if (MODELS_REGISTRY[modelKey] && MODELS_REGISTRY[modelKey].style_key) {
                     const mappedStyleKey = MODELS_REGISTRY[modelKey].style_key;
-                    // Triggering dynamic mapping automatically through sdxl backend nodes
                     const response = await axios.post("https://image.itz-ashlynn.workers.dev/generate", {
                         prompt: prompt, version: "sdxl", style: mappedStyleKey
-                    }, { responseType: 'arraybuffer', timeout: 35000 });
+                    }, { responseType: 'arraybuffer', timeout: 45000 });
                     const secureLink = await uploadToTmpStorage(response.data, "buffer");
                     return sendStandardizedResponse(res, `SDXL [Style Preset: ${mappedStyleKey}]`, secureLink);
                 }
@@ -370,7 +354,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     } catch (error) {
         return res.status(500).json({
             status: "failed",
-            error: "Internal cluster communication pipeline error or target host downtime.",
+            error: "Target backend host took too long to respond (Timeout) or server is temporarily overloaded.",
             technical_details: error.message,
             ...BRANDING
         });
