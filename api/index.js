@@ -12,14 +12,13 @@ const BRANDING = {
     group_link: "https://chat.whatsapp.com/LoafyPWMGOv88oElxdwOB8"
 };
 
-// Hardcoded API Keys System (7 Days, 1 Month, 1 Year)
+// Hardcoded API Keys System
 const VALID_KEYS = {
     "ramzan-7day-demo-key-xyz": { type: "7 Days", expires: "2026-06-20" },
     "ramzan-1month-premium-abc": { type: "1 Month", expires: "2026-07-13" },
     "ramzan-1year-vip-gold": { type: "1 Year", expires: "2027-06-13" }
 };
 
-// All Models List Registry for /api/models endpoint
 const MODELS_REGISTRY = {
     "gemini-flash": { type: "chat", description: "Gemini 2.5 Flash Engine via bot-hosting" },
     "gemini-prime": { type: "chat", description: "Gemini 3 Flash via Primezone Vercel route" },
@@ -42,7 +41,6 @@ const MODELS_REGISTRY = {
     "sdxl-watercolor": { type: "image", description: "SDXL High detail watercolor dynamic painting array" }
 };
 
-// Middleware: Key Authorization Check
 function authorizeKey(req, res, next) {
     const userKey = req.query.key || req.body.key;
     if (!userKey) {
@@ -54,19 +52,16 @@ function authorizeKey(req, res, next) {
     next();
 }
 
-// Core Helper: Converts any http binary or external http link to a secure tmpfiles https link
 async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     try {
         let fileBuffer;
-        
         if (inputType === "url") {
-            // Agar input ek http:// URL hai to pehle use backend pe download karo
             const downloadRes = await axios.get(base64OrBufferOrUrl, { responseType: 'arraybuffer', timeout: 20000 });
             fileBuffer = Buffer.from(downloadRes.data);
         } else if (inputType === "base64") {
             fileBuffer = Buffer.from(base64OrBufferOrUrl, 'base64');
         } else {
-            fileBuffer = base64OrBufferOrUrl; // Already a Buffer
+            fileBuffer = base64OrBufferOrUrl;
         }
 
         const filename = `${uuidv4().replace(/-/g, '')}.png`;
@@ -79,24 +74,19 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
         });
 
         if (response.data && response.data.status === "success") {
-            // Converting view link to direct secure download link (https)
             return response.data.data.url.replace("tmpfiles.org/", "tmpfiles.org/dl/");
         }
     } catch (e) {
-        console.error("⚠️ Secure Cloud Upload failed, reverting to original path:", e.message);
+        console.error("⚠️ Secure Cloud Upload failed:", e.message);
     }
-    return base64OrBufferOrUrl; // Fallback to raw path if upload fails
+    return base64OrBufferOrUrl;
 }
 
-// Helper: Standardized response formatter that filters and secures result links
 async function sendStandardizedResponse(res, modelName, rawResult) {
     let finalizedResult = rawResult;
-
-    // Filter Logic: Agar result ek string hai aur 'http://' se shuru ho raha hai, to use secure tmp link me convert karo
     if (typeof rawResult === 'string' && rawResult.startsWith('http://')) {
         finalizedResult = await uploadToTmpStorage(rawResult, "url");
     }
-
     return res.json({
         status: "success",
         model: modelName,
@@ -111,10 +101,6 @@ app.get('/api/models', (req, res) => {
         status: "success",
         total_models: Object.keys(MODELS_REGISTRY).length,
         models: MODELS_REGISTRY,
-        styles_guide: {
-            message: "For 'flip-gen' model, pass an optional 'style' parameter.",
-            available_styles: ["realistic", "anime", "fantasy", "cyberpunk", "watercolor", "oil-painting", "pixel-art", "sketch", "cartoon", "abstract", "vintage", "steampunk"]
-        },
         ...BRANDING
     });
 });
@@ -123,22 +109,26 @@ app.get('/api/models', (req, res) => {
 app.all('/api/chat', authorizeKey, async (req, res) => {
     const params = req.method === 'POST' ? req.body : req.query;
     const chosenModel = params.model;
-    const prompt = params.text || params.prompt || params.q;
+    let prompt = params.text || params.prompt || params.q;
     const customStyle = params.style || "realistic";
 
     if (!chosenModel) {
         return res.status(400).json({ status: "failed", error: "Please provide a 'model' parameter.", ...BRANDING });
     }
     if (!prompt) {
-        return res.status(400).json({ status: "failed", error: "Input instruction parameter ('text', 'prompt', or 'q') is required.", ...BRANDING });
+        return res.status(400).json({ status: "failed", error: "Input instruction parameter is required.", ...BRANDING });
     }
 
+    const modelKey = chosenModel.toLowerCase();
+
     try {
-        switch (chosenModel.toLowerCase()) {
+        switch (modelKey) {
             
-            // ==================== CHAT MODELS ====================
+            // ==================== CHAT MODELS WITH PROMPT ISOLATION ====================
             case "gemini-flash": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chat?text=${encodeURIComponent(prompt)}`, { timeout: 15000 });
+                // System Instruction injection to prevent model identity theft/mixing
+                const strictPrompt = `[System Instruction: You are Gemini 2.5 Flash, an AI built by Google. Never claim to be Llama, ChatGPT, or Meta. Answer the following user question strictly as Gemini 2.5 Flash]. User Question: ${prompt}`;
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chat?text=${encodeURIComponent(strictPrompt)}`, { timeout: 15000 });
                 return sendStandardizedResponse(res, "Gemini 2.5 Flash", response.data.reply || response.data.response);
             }
 
@@ -148,12 +138,14 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             }
 
             case "gpt-5-nano": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chatgpt?text=${encodeURIComponent(prompt)}`, { timeout: 15000 });
+                const strictPrompt = `[System Instruction: You are GPT-5 Nano, developed by OpenAI. Keep your identity precise.] User Question: ${prompt}`;
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-chatgpt?text=${encodeURIComponent(strictPrompt)}`, { timeout: 15000 });
                 return sendStandardizedResponse(res, "GPT-5 Nano", response.data.reply);
             }
 
             case "deepseek": {
-                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-deepseek?uid=12345&text=${encodeURIComponent(prompt)}`, { timeout: 15000 });
+                const strictPrompt = `[System Instruction: You are DeepSeek, an AI model built by DeepSeek company.] User Question: ${prompt}`;
+                const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-deepseek?uid=12345&text=${encodeURIComponent(strictPrompt)}`, { timeout: 15000 });
                 return sendStandardizedResponse(res, "DeepSeek", response.data.reply);
             }
 
@@ -200,7 +192,6 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                     prompt: prompt,
                     aspect: "16:9"
                 }, { headers: { "Content-Type": "application/json" }, timeout: 45000 });
-                // Automatically handles and filters if response contains http://
                 return sendStandardizedResponse(res, "Sora2 AI Video Engine", response.data.UrlVideo);
             }
 
@@ -215,7 +206,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 let nonce = null;
                 const match = pageData.data.match(/"nonce"\s*:\s*"([a-zA-Z0-9]+)"/);
                 if (match) nonce = match[1];
-                if (!nonce) throw new Error("Veo API automated security token mismatch.");
+                if (!nonce) throw new Error("Veo API token mismatch.");
                 
                 const payload = new URLSearchParams();
                 payload.append("action", "veo_video_generator");
@@ -282,7 +273,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             }
 
             default:
-                return res.status(404).json({ status: "failed", error: `Model target key '${chosenModel}' not found in registry mapping. Check /api/models`, ...BRANDING });
+                return res.status(404).json({ status: "failed", error: `Model key '${chosenModel}' not found.`, ...BRANDING });
         }
 
     } catch (error) {
@@ -295,9 +286,8 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     }
 });
 
-// Wildcard Fallback Route
 app.use((req, res) => {
-    res.status(404).json({ status: "failed", error: "Endpoint not found. Valid endpoints: /api/models, /api/chat", ...BRANDING });
+    res.status(404).json({ status: "failed", error: "Valid endpoints: /api/models, /api/chat", ...BRANDING });
 });
 
 module.exports = app;
