@@ -20,7 +20,7 @@ const VALID_KEYS = {
     "ramzan-1year-vip-gold": { type: "1 Year", expires: "2027-06-13" }
 };
 
-// ALL MODELS REGISTRY - UPDATED WITH YOUR NEW ENGINES
+// ALL MODELS REGISTRY
 const MODELS_REGISTRY = {
     // Chat & Text Models
     "gemma-3": { type: "chat", description: "Gemma 3 27B IT Unfiltered Engine via GPTAnon Stream" },
@@ -112,11 +112,10 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     return base64OrBufferOrUrl;
 }
 
-// Automated Filter Layer: FIXED to prevent empty responses on Image/Video Links
+// Automated Filter Layer: Fixed to handle dynamic link conversions correctly
 async function sendStandardizedResponse(res, modelName, rawResult) {
     let finalizedResult = rawResult;
     
-    // Check if result is empty or invalid
     if (!finalizedResult) {
         return res.status(502).json({
             status: "failed",
@@ -125,10 +124,8 @@ async function sendStandardizedResponse(res, modelName, rawResult) {
         });
     }
 
-    // Handle string results that might be raw URLs
     if (typeof finalizedResult === 'string') {
         if (finalizedResult.startsWith('http://') || finalizedResult.startsWith('https://')) {
-            // If it's a dynamic image link from an unprotected engine, save to tmpfiles
             if (!finalizedResult.includes('tmpfiles.org') && (finalizedResult.match(/\.(jpeg|jpg|gif|png|mp4|webm)/i) || finalizedResult.includes('wp-admin') || finalizedResult.includes('serv00'))) {
                 finalizedResult = await uploadToTmpStorage(finalizedResult, "url");
             }
@@ -172,16 +169,14 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     try {
         switch (modelKey) {
             
-            // --- NEW: GEMMA 3 via GPTAnon API Node Conversion ---
+            // --- GEMMA 3 via GPTAnon API Node ---
             case "gemma-3":
             case "gemma3": {
                 const session = axios.create({
                     headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36" }
                 });
                 
-                const initResp = await session.get("https://gptanon.com/chat", { timeout: 25000 });
-                const cookies = initResp.headers['set-cookie'] || [];
-                const hasCookie = cookies.some(c => c.includes('GAESA'));
+                await session.get("https://gptanon.com/chat", { timeout: 25000 });
                 
                 const payload = {
                     "message": prompt,
@@ -214,11 +209,11 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "Gemma 3 27B IT", fullReply.trim());
             }
 
-            // --- NEW: FREEDOM GPT via Live Puppeteer Scraper Node ---
+            // --- FREEDOM GPT via Puppeteer Scraper ---
             case "freedom-liberty":
             case "freedomgpt": {
                 const browser = await puppeteer.launch({
-                    executablePath: '/data/data/com.termux/files/usr/bin/chromium-browser',
+                    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/data/data/com.termux/files/usr/bin/chromium-browser',
                     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--disable-gpu', '--disable-dev-shm-usage']
                 });
                 const page = await browser.newPage();
@@ -262,7 +257,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "FreedomGPT Liberty 13B", output);
             }
 
-            // --- CHAT MODELS HANDLERS ---
+            // --- CHAT MODELS ---
             case "gemini-2.5-flash":
             case "gemini-flash": {
                 const strictPrompt = `[System Instruction: You are Gemini 2.5 Flash model built by Google. Keep identity safe.] Question: ${prompt}`;
@@ -324,7 +319,6 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
             case "sora-video-six":
             case "text-to-video-six": {
                 const response = await axios.get(`https://texttovideo-six.vercel.app/generate?prompt=${encodeURIComponent(prompt)}`, { timeout: 180000 });
-                // Target direct check for empty URLs
                 const videoUrl = response.data?.url || response.data;
                 return sendStandardizedResponse(res, "Sora Vercel Multi-node Six", videoUrl);
             }
@@ -444,9 +438,13 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     }
 });
 
-// Catch-All
+// Catch-All for undefined routes
 app.use((req, res) => {
     res.status(404).json({ status: "failed", error: "Valid routes mapping: /api/models, /api/chat", ...BRANDING });
 });
 
-module.exports = app;
+// Centralized Node Process Listener Framework for Web Services (Render/Railway)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🚀 Cluster Web Service running smoothly on port ${PORT} - Developed by Ramzan Ahsan`);
+});
