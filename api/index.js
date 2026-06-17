@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const FormData = require('form-data');
 const { v4: uuidv4 } = require('uuid');
+const puppeteer = require('puppeteer-core');
 
 const app = express();
 app.use(express.json());
@@ -19,9 +20,11 @@ const VALID_KEYS = {
     "ramzan-1year-vip-gold": { type: "1 Year", expires: "2027-06-13" }
 };
 
-// ALL MODELS REGISTRY FROM YOUR 17 POINTS
+// ALL MODELS REGISTRY - UPDATED WITH YOUR NEW ENGINES
 const MODELS_REGISTRY = {
     // Chat & Text Models
+    "gemma-3": { type: "chat", description: "Gemma 3 27B IT Unfiltered Engine via GPTAnon Stream" },
+    "freedom-liberty": { type: "chat", description: "FreedomGPT Liberty 13B Local Scraped Framework Node" },
     "gemini-2.5-flash": { type: "chat", description: "Gemini 2.5 Flash Engine via Kilwa Server" },
     "gemini-3-flash": { type: "chat", description: "Gemini 3 Flash via Primezone Server" },
     "gpt-5-nano": { type: "chat", description: "GPT-5 Nano via Kilwa Server" },
@@ -60,38 +63,11 @@ const MODELS_REGISTRY = {
     "flip-cartoon": { type: "image", description: "Flip-Gen: Standard vector animation cartoon layout" },
     "flip-abstract": { type: "image", description: "Flip-Gen: Modern non-representational abstract geometry art" },
     "flip-vintage": { type: "image", description: "Flip-Gen: Classic 1970s film grain vintage look" },
-    "flip-steampunk": { type: "image", description: "Flip-Gen: Victorian steam engine copper industrial aesthetic" },
-    
-    // Additional 31 Styles mapped as direct accessible sub-models
-    "style-adorable-kawaii": { type: "image", style_key: "adorable_kawaii", description: "Chibi kawaii clean vector profile artwork" },
-    "style-pointillism": { type: "image", style_key: "pointillism", description: "Pointillism dots cluster art structure" },
-    "style-psychedelic": { type: "image", style_key: "psychedelic", description: "Trippy vibrant high contrast colorful wave visual" },
-    "style-typography": { type: "image", style_key: "typography", description: "Font integrated dynamic typographic painting architecture" },
-    "style-caricature": { type: "image", style_key: "caricature", description: "Exaggerated humorous comic drawing style" },
-    "style-colored-pencil": { type: "image", style_key: "colored_pencil_art", description: "Color pencil shaded sketch layout texture" },
-    "style-monochrome": { type: "image", style_key: "monochrome", description: "Pure black and white depth cinematic photography representation" },
-    "style-stained-glass": { type: "image", style_key: "stained_glass", description: "Church dynamic colorful glass segments mosaic" },
-    "style-van-gogh": { type: "image", style_key: "van_gogh", description: "Starry night textured circular stroke paint simulation" },
-    "style-comic": { type: "image", style_key: "comic", description: "Pop art book outline comic shaded look" },
-    "style-manga": { type: "image", style_key: "manga", description: "Japanese standard black-ink high focus manga drawing asset" },
-    "style-sumi-e": { type: "image", style_key: "sumi_e_symbolic", description: "Traditional Zen ink brush minimalism layout" },
-    "style-surreal-painting": { type: "image", style_key: "surreal_painting", description: "Dream world landscape perspective physics distortion layout" },
-    "style-papercraft-kirigami": { type: "image", style_key: "papercraft_kirigami", description: "Folded cut out paper layers landscape simulation" },
-    "style-papercraft-mache": { type: "image", style_key: "papercraft_paper_mache", description: "Thick glued rough surface paper mache structural art" },
-    "style-papercraft-quilling": { type: "image", style_key: "papercraft_paper_quilling", description: "Rolled spiraled thin paper strips pattern architecture" },
-    "style-lowpoly": { type: "image", style_key: "lowpoly", description: "3D flat shading low polygon structural digital art" },
-    "style-sticker": { type: "image", style_key: "sticker", description: "White outer boundary clean die-cut sticker layout asset" },
-    "style-cubist": { type: "image", style_key: "cubist", description: "Pablo Picasso inspired broken multi angle geometric cubism art" },
-    "style-dripping-paint": { type: "image", style_key: "dripping_paint_splatter", description: "Messy colorful canvas paint dripping splatter profile" },
-    "style-ink-dripping": { type: "image", style_key: "ink_dripping", description: "Dark monochrome calligraphy ink drops spreading layout" },
-    "style-alcohol-ink": { type: "image", style_key: "alcohol_ink", description: "Translucent abstract marble texture chemical blend layout" },
-    "style-line-art": { type: "image", style_key: "line_art", description: "Single line continuous vector outline minimalistic drawing" },
-    "style-tlingit-art": { type: "image", style_key: "tlingit_art", description: "Native American traditional symmetrical tribal carving art form" },
-    "style-cross-stitching": { type: "image", style_key: "cross_stitching", description: "Fabric pixel cross thread stitch sewing matrix texture" },
-    "style-pop-art": { type: "image", style_key: "pop_art", description: "Retro Andy Warhol comic grid dot coloring pattern visual" },
-    "style-graffiti": { type: "image", style_key: "graffiti", description: "Urban street background spray paint wall tags artwork" },
-    "style-fauvism": { type: "image", style_key: "fauvism", description: "Wild wild brushstrokes high saturation non-natural color spectrum art" }
+    "flip-steampunk": { type: "image", description: "Flip-Gen: Victorian steam engine copper industrial aesthetic" }
 };
+
+// Global Variable to persist session across requests
+let globalGptAnonSession = null;
 
 // Middleware: API Key Validator
 function authorizeKey(req, res, next) {
@@ -110,7 +86,6 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     try {
         let fileBuffer;
         if (inputType === "url") {
-            // Buffer download timeout extended to 1.5 minutes (90000ms) to sync heavy inner endpoints
             const downloadRes = await axios.get(base64OrBufferOrUrl, { responseType: 'arraybuffer', timeout: 90000 });
             fileBuffer = Buffer.from(downloadRes.data);
         } else if (inputType === "base64") {
@@ -125,7 +100,7 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
 
         const response = await axios.post("https://tmpfiles.org/api/v1/upload", form, {
             headers: form.getHeaders(),
-            timeout: 90000 // Tmpfiles processing sync timeout set to 1m 30s
+            timeout: 90000
         });
 
         if (response.data && response.data.status === "success") {
@@ -137,12 +112,29 @@ async function uploadToTmpStorage(base64OrBufferOrUrl, inputType = "buffer") {
     return base64OrBufferOrUrl;
 }
 
-// Automated Filter Layer: Catches raw HTTP, converts it safely using centralized pipeline
+// Automated Filter Layer: FIXED to prevent empty responses on Image/Video Links
 async function sendStandardizedResponse(res, modelName, rawResult) {
     let finalizedResult = rawResult;
-    if (typeof rawResult === 'string' && rawResult.startsWith('http://')) {
-        finalizedResult = await uploadToTmpStorage(rawResult, "url");
+    
+    // Check if result is empty or invalid
+    if (!finalizedResult) {
+        return res.status(502).json({
+            status: "failed",
+            error: "Backend node response parsed successfully but data payload was empty.",
+            ...BRANDING
+        });
     }
+
+    // Handle string results that might be raw URLs
+    if (typeof finalizedResult === 'string') {
+        if (finalizedResult.startsWith('http://') || finalizedResult.startsWith('https://')) {
+            // If it's a dynamic image link from an unprotected engine, save to tmpfiles
+            if (!finalizedResult.includes('tmpfiles.org') && (finalizedResult.match(/\.(jpeg|jpg|gif|png|mp4|webm)/i) || finalizedResult.includes('wp-admin') || finalizedResult.includes('serv00'))) {
+                finalizedResult = await uploadToTmpStorage(finalizedResult, "url");
+            }
+        }
+    }
+
     return res.json({
         status: "success",
         model: modelName,
@@ -180,6 +172,96 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     try {
         switch (modelKey) {
             
+            // --- NEW: GEMMA 3 via GPTAnon API Node Conversion ---
+            case "gemma-3":
+            case "gemma3": {
+                const session = axios.create({
+                    headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36" }
+                });
+                
+                const initResp = await session.get("https://gptanon.com/chat", { timeout: 25000 });
+                const cookies = initResp.headers['set-cookie'] || [];
+                const hasCookie = cookies.some(c => c.includes('GAESA'));
+                
+                const payload = {
+                    "message": prompt,
+                    "modelIds": ["google/gemma-3-27b-it"]
+                };
+                if (globalGptAnonSession) payload["sessionId"] = globalGptAnonSession;
+
+                const streamResp = await session.post("https://gptanon.com/api/chat/stream", payload, {
+                    headers: {
+                        "Accept": "*/*",
+                        "Content-Type": "application/json",
+                        "Origin": "https://gptanon.com",
+                        "Referer": "https://gptanon.com/chat",
+                    },
+                    timeout: 45000
+                });
+
+                let fullReply = "";
+                const lines = streamResp.data.split("\n");
+                for (let line of lines) {
+                    if (line.startsWith("data: ")) {
+                        try {
+                            const parsed = JSON.parse(line.substring(6));
+                            if (parsed.type === "session") globalGptAnonSession = parsed.sessionId;
+                            if (parsed.type === "token") fullReply += parsed.token || "";
+                            if (parsed.type === "complete") fullReply = parsed.content || fullReply;
+                        } catch(e){}
+                    }
+                }
+                return sendStandardizedResponse(res, "Gemma 3 27B IT", fullReply.trim());
+            }
+
+            // --- NEW: FREEDOM GPT via Live Puppeteer Scraper Node ---
+            case "freedom-liberty":
+            case "freedomgpt": {
+                const browser = await puppeteer.launch({
+                    executablePath: '/data/data/com.termux/files/usr/bin/chromium-browser',
+                    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--disable-gpu', '--disable-dev-shm-usage']
+                });
+                const page = await browser.newPage();
+                await page.setRequestInterception(true);
+                page.on('request', (req) => {
+                    if (['image', 'font'].includes(req.resourceType())) req.abort();
+                    else req.continue();
+                });
+
+                await page.setViewport({ width: 1280, height: 800 });
+                await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                
+                await page.goto('https://chat.freedomgpt.com/', { waitUntil: 'networkidle2', timeout: 60000 });
+                
+                const inputSelector = '[contenteditable="true"]';
+                await page.waitForSelector(inputSelector, { timeout: 15000 });
+                await page.focus(inputSelector);
+                await page.click(inputSelector);
+                await new Promise(r => setTimeout(r, 1000));
+                await page.type(inputSelector, prompt);
+                await page.keyboard.press('Enter');
+
+                let previousLength = 0, finalBodyText = "", stableCount = 0;
+                for (let i = 0; i < 30; i++) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    finalBodyText = await page.evaluate(() => document.body.innerText);
+                    if (finalBodyText.length > (prompt.length + 10) && finalBodyText.length === previousLength) {
+                        stableCount++;
+                        if (stableCount >= 2) break;
+                    } else { stableCount = 0; }
+                    previousLength = finalBodyText.length;
+                }
+
+                await browser.close();
+                let output = "";
+                if (finalBodyText.includes(prompt)) {
+                    output = finalBodyText.split(prompt).pop().split("OpenAI:")[0].split("Mistral:")[0].trim();
+                } else {
+                    output = finalBodyText.replace(/New Chat|Selected|Model|Auto|Share|Voice/g, '').trim();
+                }
+                return sendStandardizedResponse(res, "FreedomGPT Liberty 13B", output);
+            }
+
             // --- CHAT MODELS HANDLERS ---
             case "gemini-2.5-flash":
             case "gemini-flash": {
@@ -238,21 +320,23 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "WormGPT Enterprise", response.data.reply || response.data.response);
             }
 
-            // --- VIDEO GENERATION MODELS (Timeout set to 3 Minutes) ---
+            // --- VIDEO GENERATION MODELS (3 Minutes Timeout) ---
             case "sora-video-six":
             case "text-to-video-six": {
                 const response = await axios.get(`https://texttovideo-six.vercel.app/generate?prompt=${encodeURIComponent(prompt)}`, { timeout: 180000 });
-                return sendStandardizedResponse(res, "Sora Vercel Multi-node Six", response.data.url);
+                // Target direct check for empty URLs
+                const videoUrl = response.data?.url || response.data;
+                return sendStandardizedResponse(res, "Sora Vercel Multi-node Six", videoUrl);
             }
 
             case "sora2-video": {
                 const response = await axios.post("https://zecora0.serv00.net/ai/Sora2_s4.php", {
                     prompt: prompt, aspect: "16:9"
                 }, { headers: { "Content-Type": "application/json" }, timeout: 180000 });
-                return sendStandardizedResponse(res, "Sora2 AI Video Engine", response.data.UrlVideo);
+                return sendStandardizedResponse(res, "Sora2 AI Video Engine", response.data?.UrlVideo || response.data);
             }
 
-            // --- IMAGE GENERATION MODELS (Timeout Extended to 1 Minute 30 Seconds / 90000ms) ---
+            // --- IMAGE GENERATION MODELS (1 Minute 30 Seconds Timeout) ---
             case "veo-image": {
                 const pageData = await axios.get("https://veoaifree.com/veo-video-generator/", { timeout: 25000 });
                 let nonce = null;
@@ -270,7 +354,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 payload.append("model", "veo");
 
                 const imgResponse = await axios.post("https://veoaifree.com/wp-admin/admin-ajax.php", payload, { timeout: 90000 });
-                let base64Uri = imgResponse.data.data?.data_uri || imgResponse.data.data_uri || "";
+                let base64Uri = imgResponse.data?.data?.data_uri || imgResponse.data?.data_uri || "";
                 if (base64Uri.includes("base64,")) base64Uri = base64Uri.split("base64,")[1];
 
                 const secureLink = await uploadToTmpStorage(base64Uri, "base64");
@@ -279,25 +363,25 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
 
             case "dalle": {
                 const response = await axios.post("https://yabes-api.pages.dev/api/ai/image/dalle", { prompt: prompt }, { timeout: 90000 });
-                return sendStandardizedResponse(res, "Dall-E AI Node", response.data.output);
+                return sendStandardizedResponse(res, "Dall-E AI Node", response.data?.output || response.data);
             }
 
             case "nanobanana-pro":
             case "nanobanana": {
                 const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-nanobanana-pro?text=${encodeURIComponent(prompt)}`, { timeout: 90000 });
-                return sendStandardizedResponse(res, "KILWA Nanobanana Pro", response.data.image_url);
+                return sendStandardizedResponse(res, "KILWA Nanobanana Pro", response.data?.image_url || response.data);
             }
 
             case "gpt-image-2":
             case "gpt-image": {
                 const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-gpt-img?text=${encodeURIComponent(prompt)}`, { timeout: 90000 });
-                return sendStandardizedResponse(res, "GPT Image 2 Node System", response.data.image_url);
+                return sendStandardizedResponse(res, "GPT Image 2 Node System", response.data?.image_url || response.data);
             }
 
             case "nanobanana-2":
             case "nano-banana2": {
                 const response = await axios.get(`http://de3.bot-hosting.net:21007/kilwa-img?text=${encodeURIComponent(prompt)}`, { timeout: 90000 });
-                return sendStandardizedResponse(res, "Nano Banana Engine Gen 2", response.data.image_url);
+                return sendStandardizedResponse(res, "Nano Banana Engine Gen 2", response.data?.image_url || response.data);
             }
 
             case "flip-gen":
@@ -317,7 +401,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 if (styleSlug === "flip-gen") styleSlug = fallbackStyle;
                 
                 const response = await axios.get(`https://flip-gen.vercel.app/ai/image/${styleSlug}?prompt=${encodeURIComponent(prompt)}`, { timeout: 90000 });
-                return sendStandardizedResponse(res, `Flip-Gen Style: [${styleSlug}]`, response.data.image_url);
+                return sendStandardizedResponse(res, `Flip-Gen Style: [${styleSlug}]`, response.data?.image_url || response.data);
             }
 
             case "flux-cyberpunk": {
@@ -336,7 +420,6 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
                 return sendStandardizedResponse(res, "SDXL High Fidelity Watercolor Studio", secureLink);
             }
 
-            // Fallback for custom dynamic style presets (SDXL Backend Nodes)
             default: {
                 if (MODELS_REGISTRY[modelKey] && MODELS_REGISTRY[modelKey].style_key) {
                     const mappedStyleKey = MODELS_REGISTRY[modelKey].style_key;
@@ -354,7 +437,7 @@ app.all('/api/chat', authorizeKey, async (req, res) => {
     } catch (error) {
         return res.status(500).json({
             status: "failed",
-            error: "Target backend host took too long to respond (Timeout) or server is temporarily overloaded.",
+            error: "Internal cluster communication pipeline error or target host timeout.",
             technical_details: error.message,
             ...BRANDING
         });
